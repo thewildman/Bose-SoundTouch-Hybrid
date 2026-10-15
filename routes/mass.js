@@ -132,6 +132,9 @@ async function playMedia(target, item) {
 
     // Safety Pause
     await new Promise(r => setTimeout(r, 250));
+    if (item.settings) {
+        await applySettings(player.targetId, item.settings);
+    }
 
     // Play Command with explicit OpenAPI parameters
     const args = {
@@ -151,7 +154,6 @@ async function playMedia(target, item) {
     const success = await sendWithRetry(player.targetId, player.targetIp, "player_queues/play_media", args, { kickstart: false, forceSuccess: true });
     
     // (Ensure you keep your applySettings function if you had one, otherwise remove this line)
-    if (success && item.settings && typeof applySettings === 'function') applySettings(player.targetId, item.settings);
 
     // Preset's own default Start Volume (discussion #174). Lives here rather than only
     // in executeSmartPreset() so every playMedia() caller gets it — the physical preset
@@ -174,17 +176,22 @@ async function cmdStop(target) {
     if (!id) return;
     return await sendWithRetry(id, ip, "players/cmd/stop", { player_id: id }, { kickstart: false });
 }
-// Applies Shuffle/Repeat settings after playback starts.
-// 2-second delay to ensure player has fully transitioned to Playing state before accepting settings.
+// Apply queue settings before loading and starting media.
 async function applySettings(playerId, settings) {
-    const token = await getToken();
-    const headers = { 'Authorization': `Bearer ${token}` };
-    setTimeout(() => {
-        if (settings.shuffle !== undefined) client.post(`${BASE_URL}`, { command: "player_queues/shuffle", args: { queue_id: playerId, shuffle_enabled: settings.shuffle }, message_id: Date.now() }, { headers }).catch(()=>{});
-        if (settings.repeat && settings.repeat !== 'off') client.post(`${BASE_URL}`, { command: "player_queues/repeat", args: { queue_id: playerId, repeat_mode: settings.repeat }, message_id: Date.now() }, { headers }).catch(()=>{});
-    }, 2000); 
-}
+    if (settings.shuffle !== undefined) {
+        await sendAdminCommand("player_queues/shuffle", {
+            queue_id: playerId,
+            shuffle_enabled: settings.shuffle
+        });
+    }
 
+    if (settings.repeat !== undefined) {
+        await sendAdminCommand("player_queues/repeat", {
+            queue_id: playerId,
+            repeat_mode: settings.repeat
+        });
+    }
+}
 async function clearQueue(target) {
     const { id, ip } = await resolvePlayer(target);
     if (!id) return;
